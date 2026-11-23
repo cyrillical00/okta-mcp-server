@@ -1,4 +1,5 @@
-"""Okta tools: no path tricks, token only to the org."""
+"""Okta tools: no silent sample data, no path tricks, token only to the org."""
+import json
 import os
 import sys
 import unittest
@@ -71,6 +72,67 @@ def _live(**overrides):
 
 def _next(url):
     return f'<{url}>; rel="next"'
+
+
+class DemoModeTests(unittest.TestCase):
+    def test_sample_data_is_served_only_when_demo_mode_is_on(self):
+        with _env(DEMO_MODE="true"):
+            self.assertTrue(_okta.is_demo())
+        for value in (None, "false", "", "0", "yes"):
+            with _env(DEMO_MODE=value):
+                self.assertFalse(_okta.is_demo(), value)
+
+    def test_a_missing_token_is_an_error_not_sample_data(self):
+        http = _FakeHttp()
+        with _env(OKTA_ORG_URL=ORG), mock.patch("httpx.Client", http):
+            for call in (
+                lambda: users.list_users(),
+                lambda: users.get_user("00u1"),
+                lambda: users.list_inactive_users(),
+                lambda: users.list_users_without_mfa(),
+                lambda: groups.list_groups(),
+                lambda: groups.get_group_members("00g1"),
+                lambda: groups.list_empty_groups(),
+                lambda: applications.list_applications(),
+                lambda: applications.get_app_assignments("0oa1"),
+                lambda: applications.list_apps_with_no_assignments(),
+                lambda: applications.list_apps_with_no_recent_logins(),
+                lambda: policies.list_sign_on_policies(),
+                lambda: policies.get_policy_rules("00p1"),
+                lambda: policies.check_mfa_enrollment_rate(),
+            ):
+                with self.assertRaises(_okta.OktaConfigError):
+                    call()
+        self.assertEqual(http.calls, [])
+
+    def test_demo_results_are_labelled_and_live_results_are_not(self):
+        with _env(DEMO_MODE="true"):
+            wrapped = json.loads(_okta.respond([{"id": "00u1"}]))
+        self.assertIs(wrapped["demo"], True)
+        self.assertIn("not from a real Okta org", wrapped["notice"])
+        self.assertEqual(wrapped["data"], [{"id": "00u1"}])
+        with _live():
+            self.assertEqual(json.loads(_okta.respond([{"id": "00u1"}])), [{"id": "00u1"}])
+
+    def test_every_server_tool_labels_its_demo_output(self):
+        try:
+            with _env(DEMO_MODE="true"):
+                import server
+        except ModuleNotFoundError as exc:  # the MCP SDK installed here has no FastMCP
+            self.skipTest(f"server.py cannot be imported: {str(exc)[:60]}")
+        calls = {
+            "list_users": {}, "get_user": {"user_id_or_login": "nobody"}, "list_inactive_users": {},
+            "list_users_without_mfa": {}, "list_groups": {}, "get_group_members": {"group_id": "none"},
+            "list_empty_groups": {}, "list_applications": {}, "get_app_assignments": {"app_id": "none"},
+            "list_apps_with_no_assignments": {}, "list_apps_with_no_recent_logins": {},
+            "list_sign_on_policies": {}, "get_policy_rules": {"policy_id": "none"},
+            "check_mfa_enrollment_rate": {},
+        }
+        with _env(DEMO_MODE="true"):
+            for name, kwargs in calls.items():
+                out = json.loads(getattr(server, name)(**kwargs))
+                self.assertIs(out.get("demo"), True, name)
+                self.assertIn("data", out, name)
 
 
 class ConfigTests(unittest.TestCase):

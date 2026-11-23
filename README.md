@@ -119,9 +119,19 @@ Restart Claude Desktop after saving the config. The `okta` server will appear in
 
 Demo mode runs without any Okta credentials and returns realistic fixture data for a fictional org called **Apex Labs** (300 users, 45 applications, 60 groups).
 
-Demo mode activates automatically when:
-- `DEMO_MODE=true` is set, **or**
-- `OKTA_API_TOKEN` is absent
+Demo mode is on only when `DEMO_MODE=true` is set. Without it the server talks to a real org, and a missing `OKTA_API_TOKEN` or `OKTA_ORG_URL` is reported as an error on every tool call instead of quietly switching to sample data.
+
+Every demo result is wrapped so it cannot be mistaken for a real org's:
+
+```json
+{
+  "demo": true,
+  "notice": "Synthetic sample data from DEMO_MODE, not from a real Okta org. Do not present it as audit or compliance evidence.",
+  "data": [ ... ]
+}
+```
+
+Live results are returned as before, without the wrapper.
 
 Demo fixtures include:
 - 15+ users with lastLogin older than 90 days

@@ -4,12 +4,12 @@ Exposes Okta user, group, application, and policy data to Claude via the Model C
 All tools are read-only. This server does not create, update, or delete any Okta resources.
 """
 
-import os
-import json
 from pathlib import Path
 
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+
+from tools._okta import respond
 
 # Load .env from the same directory as this file
 load_dotenv(Path(__file__).parent / ".env")
@@ -19,7 +19,9 @@ mcp = FastMCP(
     instructions=(
         "This server provides read-only access to Okta identity data for the connected org. "
         "Use it to audit users, groups, applications, and authentication policies. "
-        "All tools are read-only and will not modify any Okta resources."
+        "All tools are read-only and will not modify any Okta resources. "
+        'A result wrapped as {"demo": true, ...} is synthetic sample data, not the org\'s: '
+        "say so whenever you report it, and never offer it as audit or compliance evidence."
     ),
 )
 
@@ -41,7 +43,7 @@ def list_users(
     """
     from tools.users import list_users as _list_users
     result = _list_users(limit=limit, status=status, search=search)
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 @mcp.tool()
@@ -54,7 +56,7 @@ def get_user(user_id_or_login: str) -> str:
     """
     from tools.users import get_user as _get_user
     result = _get_user(user_id_or_login)
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 @mcp.tool()
@@ -68,7 +70,7 @@ def list_inactive_users(days_inactive: int = 90) -> str:
     """
     from tools.users import list_inactive_users as _list_inactive_users
     result = _list_inactive_users(days_inactive=days_inactive)
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 @mcp.tool()
@@ -80,7 +82,7 @@ def list_users_without_mfa() -> str:
     """
     from tools.users import list_users_without_mfa as _list_users_without_mfa
     result = _list_users_without_mfa()
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 # ─── Groups ───────────────────────────────────────────────────────────────────
@@ -96,7 +98,7 @@ def list_groups(limit: int = 50, search: str | None = None) -> str:
     """
     from tools.groups import list_groups as _list_groups
     result = _list_groups(limit=limit, search=search)
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 @mcp.tool()
@@ -109,7 +111,7 @@ def get_group_members(group_id: str) -> str:
     """
     from tools.groups import get_group_members as _get_group_members
     result = _get_group_members(group_id)
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 @mcp.tool()
@@ -120,7 +122,7 @@ def list_empty_groups() -> str:
     """
     from tools.groups import list_empty_groups as _list_empty_groups
     result = _list_empty_groups()
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 # ─── Applications ─────────────────────────────────────────────────────────────
@@ -136,7 +138,7 @@ def list_applications(limit: int = 50, status: str | None = None) -> str:
     """
     from tools.applications import list_applications as _list_applications
     result = _list_applications(limit=limit, status=status)
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 @mcp.tool()
@@ -149,7 +151,7 @@ def get_app_assignments(app_id: str) -> str:
     """
     from tools.applications import get_app_assignments as _get_app_assignments
     result = _get_app_assignments(app_id)
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 @mcp.tool()
@@ -160,7 +162,7 @@ def list_apps_with_no_assignments() -> str:
     """
     from tools.applications import list_apps_with_no_assignments as _list_apps_with_no_assignments
     result = _list_apps_with_no_assignments()
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 @mcp.tool()
@@ -173,7 +175,7 @@ def list_apps_with_no_recent_logins(days: int = 90) -> str:
     """
     from tools.applications import list_apps_with_no_recent_logins as _list_apps_with_no_recent_logins
     result = _list_apps_with_no_recent_logins(days=days)
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 # ─── Policies ─────────────────────────────────────────────────────────────────
@@ -186,7 +188,7 @@ def list_sign_on_policies() -> str:
     """
     from tools.policies import list_sign_on_policies as _list_sign_on_policies
     result = _list_sign_on_policies()
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 @mcp.tool()
@@ -199,7 +201,7 @@ def get_policy_rules(policy_id: str) -> str:
     """
     from tools.policies import get_policy_rules as _get_policy_rules
     result = _get_policy_rules(policy_id)
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 @mcp.tool()
@@ -211,7 +213,7 @@ def check_mfa_enrollment_rate() -> str:
     """
     from tools.policies import check_mfa_enrollment_rate as _check_mfa_enrollment_rate
     result = _check_mfa_enrollment_rate()
-    return json.dumps(result, indent=2)
+    return respond(result)
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────

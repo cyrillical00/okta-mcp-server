@@ -1,13 +1,15 @@
 """
 Shared configuration and request helpers for the Okta tools.
 
-Two rules live here so every tool follows them:
+Three rules live here so every tool follows them:
 
+* sample data is served only when DEMO_MODE=true, and is labelled as such;
 * identifiers supplied by the caller are encoded before they go into a URL;
 * the API token is only ever sent to the configured org over HTTPS, including
   when following pagination links.
 """
 
+import json
 import os
 from urllib.parse import quote, urlsplit
 
@@ -18,17 +20,34 @@ USER_STATUSES = frozenset({
 })
 APP_STATUSES = frozenset({"ACTIVE", "INACTIVE"})
 
+DEMO_NOTICE = (
+    "Synthetic sample data from DEMO_MODE, not from a real Okta org. "
+    "Do not present it as audit or compliance evidence."
+)
+
+
 class OktaConfigError(RuntimeError):
     """The server is not configured to talk to an Okta org."""
 
 
 def is_demo() -> bool:
-    return os.getenv("DEMO_MODE", "false").lower() == "true" or not os.getenv("OKTA_API_TOKEN")
+    """True only when DEMO_MODE=true.
+
+    A missing API token is a configuration error. It used to switch the tools
+    to sample data silently, which could pass for a real org's results.
+    """
+    return os.getenv("DEMO_MODE", "false").strip().lower() == "true"
 
 
 def okta_headers() -> dict:
+    token = os.getenv("OKTA_API_TOKEN")
+    if not token:
+        raise OktaConfigError(
+            "OKTA_API_TOKEN is not set. Set OKTA_ORG_URL and OKTA_API_TOKEN to query a real org, "
+            "or set DEMO_MODE=true to use sample data."
+        )
     return {
-        "Authorization": f"SSWS {os.getenv('OKTA_API_TOKEN')}",
+        "Authorization": f"SSWS {token}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
@@ -87,3 +106,10 @@ def next_url(resp):
             return candidate
         raise RuntimeError("Okta returned a next-page link to another host; not following it.")
     return None
+
+
+def respond(result) -> str:
+    """Serialise a tool result for the client, labelling sample data."""
+    if is_demo():
+        result = {"demo": True, "notice": DEMO_NOTICE, "data": result}
+    return json.dumps(result, indent=2)
