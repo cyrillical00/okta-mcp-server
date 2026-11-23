@@ -3,26 +3,18 @@ Policy-related Okta MCP tools.
 All operations are read-only.
 """
 
-import os
 from typing import Any
 
 import httpx
 
 
-def _is_demo() -> bool:
-    return os.getenv("DEMO_MODE", "false").lower() == "true" or not os.getenv("OKTA_API_TOKEN")
-
-
-def _okta_headers() -> dict:
-    return {
-        "Authorization": f"SSWS {os.getenv('OKTA_API_TOKEN')}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-
-def _base_url() -> str:
-    return os.getenv("OKTA_ORG_URL", "").rstrip("/")
+from tools._okta import (
+    base_url as _base_url,
+    is_demo as _is_demo,
+    next_url as _next_url,
+    okta_headers as _okta_headers,
+    path_segment as _seg,
+)
 
 
 def list_sign_on_policies() -> list[dict]:
@@ -56,7 +48,7 @@ def list_sign_on_policies() -> list[dict]:
         results = []
         for p in policies:
             rules_resp = client.get(
-                f"{_base_url()}/api/v1/policies/{p['id']}/rules",
+                f"{_base_url()}/api/v1/policies/{_seg(p['id'])}/rules",
                 headers=_okta_headers(), timeout=30,
             )
             rules_resp.raise_for_status()
@@ -95,7 +87,7 @@ def get_policy_rules(policy_id: str) -> list[dict]:
 
     with httpx.Client() as client:
         resp = client.get(
-            f"{_base_url()}/api/v1/policies/{policy_id}/rules",
+            f"{_base_url()}/api/v1/policies/{_seg(policy_id)}/rules",
             headers=_okta_headers(), timeout=30,
         )
         resp.raise_for_status()
@@ -139,19 +131,14 @@ def check_mfa_enrollment_rate() -> dict:
             for u in resp.json():
                 total += 1
                 factors_resp = client.get(
-                    f"{_base_url()}/api/v1/users/{u['id']}/factors",
+                    f"{_base_url()}/api/v1/users/{_seg(u['id'])}/factors",
                     headers=_okta_headers(), timeout=30,
                 )
                 factors_resp.raise_for_status()
                 active_factors = [f for f in factors_resp.json() if f.get("status") == "ACTIVE"]
                 if active_factors:
                     enrolled_count += 1
-            link_header = resp.headers.get("link", "")
-            next_url = None
-            for part in link_header.split(","):
-                if 'rel="next"' in part:
-                    next_url = part.split(";")[0].strip().strip("<>")
-            url = next_url
+            url = _next_url(resp)
             params = {}
 
     not_enrolled = total - enrolled_count

@@ -3,27 +3,21 @@ User-related Okta MCP tools.
 All operations are read-only.
 """
 
-import os
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
 import httpx
 
 
-def _is_demo() -> bool:
-    return os.getenv("DEMO_MODE", "false").lower() == "true" or not os.getenv("OKTA_API_TOKEN")
-
-
-def _okta_headers() -> dict:
-    return {
-        "Authorization": f"SSWS {os.getenv('OKTA_API_TOKEN')}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-
-def _base_url() -> str:
-    return os.getenv("OKTA_ORG_URL", "").rstrip("/")
+from tools._okta import (
+    USER_STATUSES,
+    base_url as _base_url,
+    is_demo as _is_demo,
+    next_url as _next_url,
+    okta_headers as _okta_headers,
+    path_segment as _seg,
+    validate_status as _validate_status,
+)
 
 
 def _format_user(u: dict) -> dict:
@@ -43,6 +37,9 @@ def _format_user(u: dict) -> dict:
 def list_users(limit: int = 25, status: str | None = None, search: str | None = None) -> list[dict]:
     """List users in the Okta org with optional status filter and search."""
     limit = max(1, min(limit, 100))
+    if status:
+        # The value goes into an Okta filter expression; only real statuses are accepted.
+        status = _validate_status(status, USER_STATUSES)
 
     if _is_demo():
         from demo.fixtures import USERS
@@ -62,7 +59,7 @@ def list_users(limit: int = 25, status: str | None = None, search: str | None = 
 
     params: dict[str, Any] = {"limit": limit}
     if status:
-        params["filter"] = f'status eq "{status.upper()}"'
+        params["filter"] = f'status eq "{status}"'
     if search:
         params["search"] = search
     with httpx.Client() as client:
@@ -90,14 +87,14 @@ def get_user(user_id_or_login: str) -> dict:
 
     with httpx.Client() as client:
         resp = client.get(
-            f"{_base_url()}/api/v1/users/{user_id_or_login}",
+            f"{_base_url()}/api/v1/users/{_seg(user_id_or_login)}",
             headers=_okta_headers(), timeout=30,
         )
         resp.raise_for_status()
         user_data = resp.json()
 
         groups_resp = client.get(
-            f"{_base_url()}/api/v1/users/{user_id_or_login}/groups",
+            f"{_base_url()}/api/v1/users/{_seg(user_id_or_login)}/groups",
             headers=_okta_headers(), timeout=30,
         )
         groups_resp.raise_for_status()
@@ -107,7 +104,7 @@ def get_user(user_id_or_login: str) -> dict:
         ]
 
         apps_resp = client.get(
-            f"{_base_url()}/api/v1/users/{user_id_or_login}/appLinks",
+            f"{_base_url()}/api/v1/users/{_seg(user_id_or_login)}/appLinks",
             headers=_okta_headers(), timeout=30,
         )
         apps_resp.raise_for_status()
@@ -156,12 +153,7 @@ def list_inactive_users(days_inactive: int = 90) -> list[dict]:
                     last_login = datetime.fromisoformat(last_login_str.replace("Z", "+00:00"))
                     row["daysSinceLogin"] = (datetime.now(timezone.utc) - last_login).days
                 results.append(row)
-            link_header = resp.headers.get("link", "")
-            next_url = None
-            for part in link_header.split(","):
-                if 'rel="next"' in part:
-                    next_url = part.split(";")[0].strip().strip("<>")
-            url = next_url
+            url = _next_url(resp)
             params = {}
     results.sort(key=lambda x: x.get("lastLogin") or "")
     return results
@@ -189,18 +181,13 @@ def list_users_without_mfa() -> list[dict]:
             resp.raise_for_status()
             for u in resp.json():
                 factors_resp = client.get(
-                    f"{_base_url()}/api/v1/users/{u['id']}/factors",
+                    f"{_base_url()}/api/v1/users/{_seg(u['id'])}/factors",
                     headers=_okta_headers(), timeout=30,
                 )
                 factors_resp.raise_for_status()
                 active_factors = [f for f in factors_resp.json() if f.get("status") == "ACTIVE"]
                 if not active_factors:
                     results.append(_format_user(u))
-            link_header = resp.headers.get("link", "")
-            next_url = None
-            for part in link_header.split(","):
-                if 'rel="next"' in part:
-                    next_url = part.split(";")[0].strip().strip("<>")
-            url = next_url
+            url = _next_url(resp)
             params = {}
     return results

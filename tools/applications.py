@@ -3,27 +3,21 @@ Application-related Okta MCP tools.
 All operations are read-only.
 """
 
-import os
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
 import httpx
 
 
-def _is_demo() -> bool:
-    return os.getenv("DEMO_MODE", "false").lower() == "true" or not os.getenv("OKTA_API_TOKEN")
-
-
-def _okta_headers() -> dict:
-    return {
-        "Authorization": f"SSWS {os.getenv('OKTA_API_TOKEN')}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-
-def _base_url() -> str:
-    return os.getenv("OKTA_ORG_URL", "").rstrip("/")
+from tools._okta import (
+    APP_STATUSES,
+    base_url as _base_url,
+    is_demo as _is_demo,
+    next_url as _next_url,
+    okta_headers as _okta_headers,
+    path_segment as _seg,
+    validate_status as _validate_status,
+)
 
 
 def _format_app(a: dict, assigned_user_count: int | None = None) -> dict:
@@ -43,6 +37,9 @@ def _format_app(a: dict, assigned_user_count: int | None = None) -> dict:
 def list_applications(limit: int = 50, status: str | None = None) -> list[dict]:
     """List applications in the Okta org with optional status filter."""
     limit = max(1, min(limit, 200))
+    if status:
+        # The value goes into an Okta filter expression; only real statuses are accepted.
+        status = _validate_status(status, APP_STATUSES)
 
     if _is_demo():
         from demo.fixtures import APPLICATIONS, APP_ASSIGNMENTS
@@ -58,7 +55,7 @@ def list_applications(limit: int = 50, status: str | None = None) -> list[dict]:
 
     params: dict[str, Any] = {"limit": limit}
     if status:
-        params["filter"] = f'status eq "{status.upper()}"'
+        params["filter"] = f'status eq "{status}"'
     with httpx.Client() as client:
         resp = client.get(f"{_base_url()}/api/v1/apps", headers=_okta_headers(), params=params, timeout=30)
         resp.raise_for_status()
@@ -92,7 +89,7 @@ def get_app_assignments(app_id: str) -> dict:
         }
 
     users = []
-    url = f"{_base_url()}/api/v1/apps/{app_id}/users"
+    url = f"{_base_url()}/api/v1/apps/{_seg(app_id)}/users"
     params: dict[str, Any] = {"limit": 200}
     with httpx.Client() as client:
         while url:
@@ -107,16 +104,11 @@ def get_app_assignments(app_id: str) -> dict:
                     "lastName": p.get("lastName"),
                     "status": u.get("status"),
                 })
-            link_header = resp.headers.get("link", "")
-            next_url = None
-            for part in link_header.split(","):
-                if 'rel="next"' in part:
-                    next_url = part.split(";")[0].strip().strip("<>")
-            url = next_url
+            url = _next_url(resp)
             params = {}
 
         groups_resp = client.get(
-            f"{_base_url()}/api/v1/apps/{app_id}/groups",
+            f"{_base_url()}/api/v1/apps/{_seg(app_id)}/groups",
             headers=_okta_headers(), params={"limit": 200}, timeout=30,
         )
         groups_resp.raise_for_status()
@@ -149,24 +141,19 @@ def list_apps_with_no_assignments() -> list[dict]:
             resp = client.get(url, headers=_okta_headers(), params=params, timeout=30)
             resp.raise_for_status()
             all_apps.extend(resp.json())
-            link_header = resp.headers.get("link", "")
-            next_url = None
-            for part in link_header.split(","):
-                if 'rel="next"' in part:
-                    next_url = part.split(";")[0].strip().strip("<>")
-            url = next_url
+            url = _next_url(resp)
             params = {}
 
     no_assignments = []
     with httpx.Client() as client:
         for a in all_apps:
             users_resp = client.get(
-                f"{_base_url()}/api/v1/apps/{a['id']}/users",
+                f"{_base_url()}/api/v1/apps/{_seg(a['id'])}/users",
                 headers=_okta_headers(), params={"limit": 1}, timeout=30,
             )
             users_resp.raise_for_status()
             groups_resp = client.get(
-                f"{_base_url()}/api/v1/apps/{a['id']}/groups",
+                f"{_base_url()}/api/v1/apps/{_seg(a['id'])}/groups",
                 headers=_okta_headers(), params={"limit": 1}, timeout=30,
             )
             groups_resp.raise_for_status()
@@ -217,12 +204,7 @@ def list_apps_with_no_recent_logins(days: int = 90) -> list[dict]:
                 for t in target:
                     if t.get("type") == "AppInstance":
                         apps_with_recent_logins.add(t.get("id", ""))
-            link_header = resp.headers.get("link", "")
-            next_url = None
-            for part in link_header.split(","):
-                if 'rel="next"' in part:
-                    next_url = part.split(";")[0].strip().strip("<>")
-            url = next_url
+            url = _next_url(resp)
             params = {}
 
         # Get all active apps and return those not in the recent login set
@@ -233,12 +215,7 @@ def list_apps_with_no_recent_logins(days: int = 90) -> list[dict]:
             resp = client.get(url, headers=_okta_headers(), params=params, timeout=30)
             resp.raise_for_status()
             all_apps.extend(resp.json())
-            link_header = resp.headers.get("link", "")
-            next_url = None
-            for part in link_header.split(","):
-                if 'rel="next"' in part:
-                    next_url = part.split(";")[0].strip().strip("<>")
-            url = next_url
+            url = _next_url(resp)
             params = {}
 
     return [_format_app(a) for a in all_apps if a["id"] not in apps_with_recent_logins]

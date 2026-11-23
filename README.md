@@ -140,4 +140,6 @@ All fixture field names match real Okta API response shapes.
 - The API token is read via environment variable and never logged or returned in tool output.
 - `.env` is excluded from version control via `.gitignore`.
 - Only read-only Okta API endpoints are called (`GET` requests only).
+- The token is sent only to `OKTA_ORG_URL`, which must be an `https://` address. Redirects are not followed, and a pagination link that points anywhere else stops the call with an error.
+- IDs and logins passed to a tool are URL-encoded before they are placed in a request path, and a status filter accepts only Okta's own status values, so a crafted argument cannot steer a call to a different endpoint.
 - No Okta data is cached to disk.
