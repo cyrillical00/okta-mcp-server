@@ -3,26 +3,18 @@ Group-related Okta MCP tools.
 All operations are read-only.
 """
 
-import os
 from typing import Any
 
 import httpx
 
 
-def _is_demo() -> bool:
-    return os.getenv("DEMO_MODE", "false").lower() == "true" or not os.getenv("OKTA_API_TOKEN")
-
-
-def _okta_headers() -> dict:
-    return {
-        "Authorization": f"SSWS {os.getenv('OKTA_API_TOKEN')}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-
-def _base_url() -> str:
-    return os.getenv("OKTA_ORG_URL", "").rstrip("/")
+from tools._okta import (
+    base_url as _base_url,
+    is_demo as _is_demo,
+    next_url as _next_url,
+    okta_headers as _okta_headers,
+    path_segment as _seg,
+)
 
 
 def _format_group(g: dict, member_count: int | None = None) -> dict:
@@ -86,7 +78,7 @@ def get_group_members(group_id: str) -> list[dict]:
         ]
 
     results = []
-    url = f"{_base_url()}/api/v1/groups/{group_id}/users"
+    url = f"{_base_url()}/api/v1/groups/{_seg(group_id)}/users"
     params: dict[str, Any] = {"limit": 200}
     with httpx.Client() as client:
         while url:
@@ -101,12 +93,7 @@ def get_group_members(group_id: str) -> list[dict]:
                     "lastName": p.get("lastName"),
                     "status": u.get("status"),
                 })
-            link_header = resp.headers.get("link", "")
-            next_url = None
-            for part in link_header.split(","):
-                if 'rel="next"' in part:
-                    next_url = part.split(";")[0].strip().strip("<>")
-            url = next_url
+            url = _next_url(resp)
             params = {}
     return results
 
@@ -130,19 +117,14 @@ def list_empty_groups() -> list[dict]:
             resp = client.get(url, headers=_okta_headers(), params=params, timeout=30)
             resp.raise_for_status()
             all_groups.extend(resp.json())
-            link_header = resp.headers.get("link", "")
-            next_url = None
-            for part in link_header.split(","):
-                if 'rel="next"' in part:
-                    next_url = part.split(";")[0].strip().strip("<>")
-            url = next_url
+            url = _next_url(resp)
             params = {}
 
     empty = []
     with httpx.Client() as client:
         for g in all_groups:
             members_resp = client.get(
-                f"{_base_url()}/api/v1/groups/{g['id']}/users",
+                f"{_base_url()}/api/v1/groups/{_seg(g['id'])}/users",
                 headers=_okta_headers(),
                 params={"limit": 1},
                 timeout=30,
